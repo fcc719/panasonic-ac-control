@@ -1,17 +1,20 @@
 """
 Panasonic IoT TW FastAPI 後端
 基於 osk2/panasonic_smart_app 的開源程式碼改造
+使用 urllib 代替 aiohttp，避免 Python 3.13 相容性問題
 """
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
-import aiohttp
 import asyncio
 import logging
 import os
 from datetime import datetime
+import json
+import urllib.request
+import urllib.error
 
 # 配置日誌
 logging.basicConfig(level=logging.INFO)
@@ -24,8 +27,6 @@ _LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://ems2.panasonic.com.tw/api"
 APP_TOKEN = "D8CBFF4C-2824-4342-B22D-189166FEF503"
 USER_AGENT = "okhttp/4.9.1"
-SECONDS_BETWEEN_REQUEST = 2
-REQUEST_TIMEOUT = 20
 
 # ============================================================================
 # 自訂例外
@@ -75,17 +76,11 @@ class PanasonicSmartApp:
     def __init__(self, account: str, password: str):
         self.account = account
         self.password = password
-        self._session: Optional[aiohttp.ClientSession] = None
         self._cp_token: Optional[str] = None
         self._refresh_token: Optional[str] = None
         self._devices: List[Dict] = []
     
-    async def _ensure_session(self):
-        """確保 session 存在"""
-        if not self._session:
-            self._session = aiohttp.ClientSession()
-    
-    async def _request(
+    def _request(
         self,
         method: str,
         endpoint: str,
@@ -94,7 +89,7 @@ class PanasonicSmartApp:
         params: Dict = None
     ) -> Dict:
         """
-        發送 HTTP 請求
+        發送 HTTP 請求（同步版本，用於 urllib）
         
         Args:
             method: HTTP 方法 (GET, POST)
@@ -109,40 +104,49 @@ class PanasonicSmartApp:
         Raises:
             PanasonicException: 請求失敗
         """
-        await self._ensure_session()
-        
         if headers is None:
             headers = {}
         
         headers["user-agent"] = USER_AGENT
+        headers["Content-Type"] = "application/json"
+        
+        # 構建 URL
+        url = endpoint
+        if params:
+            param_str = "&".join(f"{k}={v}" for k, v in params.items())
+            url = f"{endpoint}?{param_str}"
         
         try:
-            async with self._session.request(
-                method,
-                url=endpoint,
-                json=data,
-                params=params,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-            ) as response:
-                text = await response.text()
-                
-                if response.status == 200:
-                    try:
-                        return await response.json()
-                    except:
-                        raise PanasonicException(f"無法解析響應: {text}")
-                elif response.status == 403:
-                    raise PanasonicException(f"訪問被拒絕: {text}")
-                else:
-                    raise PanasonicException(f"HTTP {response.status}: {text}")
+            if data:
+                # POST 請求
+                data_bytes = json.dumps(data).encode('utf-8')
+                req = urllib.request.Request(
+                    url,
+                    data=data_bytes,
+                    headers=headers,
+                    method=method
+                )
+            else:
+                # GET 請求
+                req = urllib.request.Request(
+                    url,
+                    headers=headers,
+                    method=method
+                )
+            
+            with urllib.request.urlopen(req, timeout=20) as response:
+                response_data = response.read().decode('utf-8')
+                return json.loads(response_data)
         
-        except asyncio.TimeoutError:
-            raise PanasonicException("請求超時")
+        except urllib.error.HTTPError as e:
+            error_text = e.read().decode('utf-8') if hasattr(e, 'read') else str(e)
+            raise PanasonicException(f"HTTP {e.code}: {error_text}")
+        except urllib.error.URLError as e:
+            raise PanasonicException(f"URL Error: {str(e)}")
         except Exception as e:
             raise PanasonicException(f"請求失敗: {str(e)}")
     
-    async def login(self) -> bool:
+    def login(self) -> bool:
         """
         登入 Panasonic IoT TW
         
@@ -158,7 +162,7 @@ class PanasonicSmartApp:
                 "AppToken": APP_TOKEN
             }
             
-            response = await self._request(
+            response = self._request(
                 method="POST",
                 endpoint=api_login(),
                 data=data
@@ -177,14 +181,14 @@ class PanasonicSmartApp:
             _LOGGER.error(f"❌ 登入失敗: {str(e)}")
             raise PanasonicLoginFailed(str(e))
     
-    async def refresh_tokens(self):
+    def refresh_tokens(self):
         """刷新令牌"""
         if not self._refresh_token:
             raise PanasonicException("無刷新令牌")
         
         try:
             data = {"RefreshToken": self._refresh_token}
-            response = await self._request(
+            response = self._request(
                 method="POST",
                 endpoint=api_refresh_token(),
                 data=data
@@ -199,7 +203,7 @@ class PanasonicSmartApp:
             _LOGGER.error(f"❌ 令牌刷新失敗: {str(e)}")
             raise
     
-    async def get_devices(self) -> List[Dict]:
+    def get_devices(self) -> List[Dict]:
         """
         取得所有已註冊的設備
         
@@ -211,7 +215,7 @@ class PanasonicSmartApp:
         
         try:
             headers = {"cptoken": self._cp_token}
-            response = await self._request(
+            response = self._request(
                 method="GET",
                 endpoint=api_get_devices(),
                 headers=headers
@@ -225,7 +229,7 @@ class PanasonicSmartApp:
             _LOGGER.error(f"❌ 取得設備失敗: {str(e)}")
             raise
     
-    async def get_device_info(self, device_auth: str, gwid: str) -> Dict:
+    def get_device_info(self, device_auth: str, gwid: str) -> Dict:
         """
         取得單個設備的詳細信息
         
@@ -258,11 +262,11 @@ class PanasonicSmartApp:
                 "DeviceID": 1
             }
             
-            response = await self._request(
+            response = self._request(
                 method="POST",
                 endpoint=api_get_device_info(),
                 headers=headers,
-                data=[data]
+                data=data
             )
             
             return response
@@ -271,7 +275,7 @@ class PanasonicSmartApp:
             _LOGGER.warning(f"⚠️ 取得設備信息失敗: {str(e)}")
             return {}
     
-    async def set_command(
+    def set_command(
         self,
         device_auth: str,
         command_type: str,
@@ -305,7 +309,7 @@ class PanasonicSmartApp:
                 "Value": value
             }
             
-            await self._request(
+            self._request(
                 method="GET",
                 endpoint=api_set_command(),
                 headers=headers,
@@ -319,10 +323,60 @@ class PanasonicSmartApp:
             _LOGGER.error(f"❌ 命令設定失敗: {str(e)}")
             raise
     
-    async def close(self):
-        """關閉 session"""
-        if self._session:
-            await self._session.close()
+    def turn_on(self, device_auth: str) -> bool:
+        """開啟冷氣"""
+        return self.set_command(device_auth, "0x00", 1)
+    
+    def turn_off(self, device_auth: str) -> bool:
+        """關閉冷氣"""
+        return self.set_command(device_auth, "0x00", 0)
+    
+    def set_temperature(self, device_auth: str, temperature: float) -> bool:
+        """
+        設定溫度
+        
+        Args:
+            device_auth: 設備的 Auth ID
+            temperature: 溫度 (例如 26.0)
+            
+        Returns:
+            bool: 是否設定成功
+        """
+        # 溫度以 0.5 度為單位，存儲為整數
+        temp_value = int(temperature * 2)
+        return self.set_command(device_auth, "0x04", temp_value)
+    
+    def set_mode(self, device_auth: str, mode: int) -> bool:
+        """
+        設定模式
+        
+        Args:
+            device_auth: 設備的 Auth ID
+            mode: 模式值 (0=冷氣, 1=除濕, 2=通風, 3=暖氣)
+            
+        Returns:
+            bool: 是否設定成功
+        """
+        return self.set_command(device_auth, "0x01", mode)
+    
+    def print_devices(self):
+        """列印所有設備信息"""
+        if not self._devices:
+            print("❌ 沒有取得任何設備")
+            return
+        
+        print("\n" + "="*80)
+        print("📱 Panasonic IoT TW 設備列表")
+        print("="*80)
+        
+        for idx, device in enumerate(self._devices, 1):
+            print(f"\n【設備 {idx}】")
+            print(f"  設備名稱: {device.get('NickName', 'N/A')}")
+            print(f"  設備類型: {device.get('DeviceType', 'N/A')}")
+            print(f"  Gateway ID: {device.get('GWID', 'N/A')}")
+            print(f"  Auth ID: {device.get('Auth', 'N/A')}")
+            print(f"  機型: {device.get('ModelVersion', 'N/A')}")
+            print(f"  連線狀態: {'🟢 線上' if device.get('IsOnline') else '🔴 離線'}")
 
 # ============================================================================
 # FastAPI 應用
@@ -349,7 +403,7 @@ app.add_middleware(
 
 _api_client: Optional[PanasonicSmartApp] = None
 
-async def get_api_client() -> PanasonicSmartApp:
+def get_api_client() -> PanasonicSmartApp:
     """取得 API 客戶端"""
     global _api_client
     
@@ -365,7 +419,7 @@ async def get_api_client() -> PanasonicSmartApp:
             )
         
         _api_client = PanasonicSmartApp(account, password)
-        await _api_client.login()
+        _api_client.login()
     
     return _api_client
 
@@ -414,12 +468,12 @@ class CommandResponse(BaseModel):
 # ============================================================================
 
 @app.get("/health")
-async def health_check():
+def health_check():
     """健康檢查"""
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 @app.post("/api/login", response_model=LoginResponse)
-async def login(request: LoginRequest):
+def login(request: LoginRequest):
     """
     登入 Panasonic IoT TW
     
@@ -431,7 +485,7 @@ async def login(request: LoginRequest):
     
     try:
         _api_client = PanasonicSmartApp(request.account, request.password)
-        await _api_client.login()
+        _api_client.login()
         
         return LoginResponse(
             success=True,
@@ -445,10 +499,10 @@ async def login(request: LoginRequest):
         )
 
 @app.get("/api/devices", response_model=DeviceListResponse)
-async def get_devices(client: PanasonicSmartApp = Depends(get_api_client)):
+def get_devices(client: PanasonicSmartApp = Depends(get_api_client)):
     """取得所有設備"""
     try:
-        devices_raw = await client.get_devices()
+        devices_raw = client.get_devices()
         
         devices = [
             Device(
@@ -475,7 +529,7 @@ async def get_devices(client: PanasonicSmartApp = Depends(get_api_client)):
         )
 
 @app.post("/api/devices/{device_id}/command", response_model=CommandResponse)
-async def send_command(
+def send_command(
     device_id: str,
     request: CommandRequest,
     client: PanasonicSmartApp = Depends(get_api_client)
@@ -504,7 +558,7 @@ async def send_command(
         device_auth = device.get("Auth")
         
         # 發送命令
-        await client.set_command(
+        client.set_command(
             device_auth=device_auth,
             command_type=request.command_type,
             value=request.value
@@ -526,31 +580,31 @@ async def send_command(
 # 簡便方法：開/關、設定溫度
 
 @app.post("/api/devices/{device_id}/turn-on", response_model=CommandResponse)
-async def turn_on(
+def turn_on(
     device_id: str,
     client: PanasonicSmartApp = Depends(get_api_client)
 ):
     """開啟冷氣"""
-    return await send_command(
+    return send_command(
         device_id,
         CommandRequest(device_id=device_id, command_type="0x00", value=1),
         client
     )
 
 @app.post("/api/devices/{device_id}/turn-off", response_model=CommandResponse)
-async def turn_off(
+def turn_off(
     device_id: str,
     client: PanasonicSmartApp = Depends(get_api_client)
 ):
     """關閉冷氣"""
-    return await send_command(
+    return send_command(
         device_id,
         CommandRequest(device_id=device_id, command_type="0x00", value=0),
         client
     )
 
 @app.post("/api/devices/{device_id}/set-temperature", response_model=CommandResponse)
-async def set_temperature(
+def set_temperature(
     device_id: str,
     temperature: float,
     client: PanasonicSmartApp = Depends(get_api_client)
@@ -565,18 +619,11 @@ async def set_temperature(
     # 溫度以 0.5 度為單位，存儲為整數
     temp_value = int(temperature * 2)
     
-    return await send_command(
+    return send_command(
         device_id,
         CommandRequest(device_id=device_id, command_type="0x04", value=temp_value),
         client
     )
-
-@app.on_event("shutdown")
-async def shutdown():
-    """應用關閉時清理"""
-    global _api_client
-    if _api_client:
-        await _api_client.close()
 
 # ============================================================================
 # 主程序
