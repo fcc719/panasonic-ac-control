@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panasonic 冷氣控制</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 480px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .status-item {
+            background: #f5f5f5;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .status-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .status-unit {
+            font-size: 14px;
+            color: #999;
+            margin-left: 4px;
+        }
+
+        .device-list {
+            margin-bottom: 24px;
+        }
+
+        .device-item {
+            background: #f9f9f9;
+            border: 1px solid #eee;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .device-item:hover {
+            background: #f0f0f0;
+            border-color: #ddd;
+        }
+
+        .device-item.active {
+            background: #e3f2fd;
+            border-color: #667eea;
+        }
+
+        .device-name {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .device-status {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .device-status.online {
+            color: #4caf50;
+        }
+
+        .controls {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #eee;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-label {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: block;
+            color: #333;
+        }
+
+        .temperature-control {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .temp-btn {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .temp-btn:hover {
+            background: #f5f5f5;
+        }
+
+        .temp-btn:active {
+            transform: scale(0.95);
+        }
+
+        .temp-display {
+            flex: 1;
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #e0e0e0;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: none;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-primary:active {
+            transform: scale(0.98);
+        }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+
+        .btn-secondary:hover {
+            background: #ebebeb;
+        }
+
+        .btn-large {
+            grid-column: 1 / -1;
+        }
+
+        .mode-selector {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .mode-btn {
+            padding: 10px;
+            border: 2px solid #ddd;
+            background: white;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: #666;
+        }
+
+        .mode-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .mode-btn.active {
+            background: #667eea;
+            border-color: #667eea;
+            color: white;
+        }
+
+        .auto-control {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #eee;
+        }
+
+        .auto-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .switch {
+            width: 50px;
+            height: 28px;
+            background: #ccc;
+            border-radius: 14px;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .switch.active {
+            background: #4caf50;
+        }
+
+        .switch::after {
+            content: '';
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .switch.active::after {
+            left: 24px;
+        }
+
+        .auto-info {
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .quick-cool {
+            display: flex;
+            gap: 12px;
+        }
+
+        .quick-cool-btn {
+            flex: 1;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .quick-cool-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .quick-cool-btn:active {
+            transform: scale(0.98);
+        }
+
+        .timer-display {
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+            margin-top: 8px;
+        }
+
+        .timer-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .alert {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 16px;
+            font-size: 12px;
+            color: #856404;
+        }
+
+        .alert.success {
+            background: #d4edda;
+            border-color: #4caf50;
+            color: #155724;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>冷氣控制面板</h1>
+            <p>智能溫度管理系統</p>
+        </div>
+
+        <div id="errorAlert" class="error" style="display: none;"></div>
+
+        <div class="card">
+            <div class="control-label">選擇設備</div>
+            <div class="device-list" id="deviceList"></div>
+        </div>
+
+        <div class="card" id="controlCard" style="display: none;">
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="status-label">目前溫度</div>
+                    <div class="status-value"><span id="currentTemp">--</span><span class="status-unit">°C</span></div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">運行狀態</div>
+                    <div class="status-value" id="powerStatus">--</div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="control-group">
+                    <label class="control-label">溫度調整</label>
+                    <div class="temperature-control">
+                        <button class="temp-btn" id="tempDown">−</button>
+                        <div class="temp-display" id="tempDisplay">26°C</div>
+                        <button class="temp-btn" id="tempUp">+</button>
+                    </div>
+                    <input type="range" id="tempSlider" class="slider" min="16" max="32" value="26" step="0.5">
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">運行模式</label>
+                    <div class="mode-selector">
+                        <button class="mode-btn active" data-mode="0">冷氣</button>
+                        <button class="mode-btn" data-mode="1">除濕</button>
+                        <button class="mode-btn" data-mode="2">通風</button>
+                        <button class="mode-btn" data-mode="3">暖氣</button>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-primary" id="powerOn">開啟</button>
+                    <button class="btn btn-secondary" id="powerOff">關閉</button>
+                </div>
+
+                <div class="quick-cool" style="margin-top: 20px;">
+                    <button class="quick-cool-btn" id="quickCool">⚡ 快速冷卻 (25°C)</button>
+                </div>
+                <div class="timer-display" id="timerDisplay"></div>
+            </div>
+
+            <div class="auto-control">
+                <div class="auto-toggle">
+                    <label class="control-label" style="margin: 0;">自動溫控</label>
+                    <div class="switch active" id="autoSwitch"></div>
+                </div>
+                <div class="auto-info">
+                    🤖 <strong>自動規則：</strong><br>
+                    • 溫度 ≤25°C → 自動調到 25°C<br>
+                    • 維持 20 分鐘<br>
+                    • 自動調回 27°C<br>
+                    • 每 30 秒檢測一次
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 配置
+        const API_BASE = 'https://panasonic-ac-control-production.up.railway.app:8080';
+        const MONITOR_INTERVAL = 30000; // 30 秒檢測一次
+        const AUTO_ADJUST_THRESHOLD = 25; // 自動調整門檻溫度
+        const AUTO_ADJUST_TEMP = 25; // 自動調整到的溫度
+        const AUTO_COOLDOWN_TIME = 1200000; // 20 分鐘（毫秒）
+        const QUICK_COOL_TIME = 1200000; // 20 分鐘
+
+        let currentDevice = null;
+        let devices = [];
+        let autoEnabled = true;
+        let isQuickCooling = false;
+        let quickCoolTimer = null;
+
+        // 初始化
+        async function init() {
+            try {
+                await fetchDevices();
+                if (devices.length > 0) {
+                    selectDevice(devices[0]);
+                    startMonitoring();
+                }
+            } catch (error) {
+                showError('初始化失敗: ' + error.message);
+            }
+        }
+
+        // 取得設備列表
+        async function fetchDevices() {
+            try {
+                const response = await fetch(`${API_BASE}/api/devices`);
+                if (!response.ok) throw new Error('無法取得設備列表');
+                
+                const data = await response.json();
+                devices = data.devices || [];
+                
+                const deviceList = document.getElementById('deviceList');
+                deviceList.innerHTML = '';
+                
+                devices.forEach((device, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'device-item' + (index === 0 ? ' active' : '');
+                    div.innerHTML = `
+                        <div class="device-name">${device.name}</div>
+                        <div class="device-status ${device.is_online ? 'online' : ''}">
+                            ${device.is_online ? '🟢 線上' : '🔴 離線'}
+                        </div>
+                    `;
+                    div.onclick = () => selectDevice(device);
+                    deviceList.appendChild(div);
+                });
+            } catch (error) {
+                showError('取得設備失敗: ' + error.message);
+                throw error;
+            }
+        }
+
+        // 選擇設備
+        function selectDevice(device) {
+            currentDevice = device;
+            document.querySelectorAll('.device-item').forEach(el => {
+                el.classList.remove('active');
+            });
+            event.target.closest('.device-item')?.classList.add('active');
+            document.getElementById('controlCard').style.display = 'block';
+            updateStatus();
+        }
+
+        // 更新狀態
+        async function updateStatus() {
+            if (!currentDevice) return;
+            // 這裡可以添加取得實時溫度的邏輯
+            document.getElementById('currentTemp').textContent = document.getElementById('tempDisplay').textContent.replace('°C', '');
+        }
+
+        // 發送命令
+        async function sendCommand(commandType, value) {
+            if (!currentDevice) return;
+            
+            try {
+                const response = await fetch(
+                    `${API_BASE}/api/devices/${currentDevice.gwid}/command`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            device_id: currentDevice.gwid,
+                            command_type: commandType,
+                            value: value
+                        })
+                    }
+                );
+                
+                if (!response.ok) throw new Error('命令發送失敗');
+                showSuccess('命令已發送');
+            } catch (error) {
+                showError('發送失敗: ' + error.message);
+            }
+        }
+
+        // 溫度控制
+        document.getElementById('tempUp').onclick = () => {
+            const slider = document.getElementById('tempSlider');
+            slider.value = Math.min(32, parseFloat(slider.value) + 0.5);
+            updateTempDisplay();
+        };
+
+        document.getElementById('tempDown').onclick = () => {
+            const slider = document.getElementById('tempSlider');
+            slider.value = Math.max(16, parseFloat(slider.value) - 0.5);
+            updateTempDisplay();
+        };
+
+        document.getElementById('tempSlider').oninput = updateTempDisplay;
+
+        function updateTempDisplay() {
+            const temp = parseFloat(document.getElementById('tempSlider').value);
+            document.getElementById('tempDisplay').textContent = temp.toFixed(1) + '°C';
+            // 發送溫度命令
+            const tempValue = Math.round(temp * 2); // 溫度 * 2 (0.5°C 為單位)
+            sendCommand('0x04', tempValue);
+        }
+
+        // 開/關
+        document.getElementById('powerOn').onclick = () => {
+            sendCommand('0x00', 1);
+            document.getElementById('powerStatus').textContent = '開啟';
+            isQuickCooling = false;
+        };
+
+        document.getElementById('powerOff').onclick = () => {
+            sendCommand('0x00', 0);
+            document.getElementById('powerStatus').textContent = '關閉';
+            clearQuickCoolTimer();
+        };
+
+        // 快速冷卻
+        document.getElementById('quickCool').onclick = () => {
+            if (isQuickCooling) {
+                clearQuickCoolTimer();
+                isQuickCooling = false;
+                document.getElementById('quickCool').textContent = '⚡ 快速冷卻 (25°C)';
+                document.getElementById('timerDisplay').innerHTML = '';
+            } else {
+                activateQuickCool();
+            }
+        };
+
+        function activateQuickCool() {
+            isQuickCooling = true;
+            document.getElementById('tempSlider').value = 25;
+            updateTempDisplay();
+            document.getElementById('powerOn').click();
+            
+            let timeLeft = QUICK_COOL_TIME / 1000; // 轉換成秒
+            document.getElementById('quickCool').textContent = '⏹ 停止快速冷卻';
+
+            const updateTimer = () => {
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
+                document.getElementById('timerDisplay').innerHTML = 
+                    `<div class="timer-display">快速冷卻中: <span class="timer-value">${minutes}:${String(seconds).padStart(2, '0')}</span></div>`;
+                
+                if (timeLeft > 0) {
+                    timeLeft--;
+                    quickCoolTimer = setTimeout(updateTimer, 1000);
+                } else {
+                    clearQuickCoolTimer();
+                    // 自動調到 27°C
+                    document.getElementById('tempSlider').value = 27;
+                    updateTempDisplay();
+                    isQuickCooling = false;
+                    document.getElementById('quickCool').textContent = '⚡ 快速冷卻 (25°C)';
+                }
+            };
+
+            updateTimer();
+        }
+
+        function clearQuickCoolTimer() {
+            if (quickCoolTimer) {
+                clearTimeout(quickCoolTimer);
+                quickCoolTimer = null;
+            }
+        }
+
+        // 運行模式
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                const mode = e.target.dataset.mode;
+                sendCommand('0x01', parseInt(mode));
+            };
+        });
+
+        // 自動溫控開關
+        document.getElementById('autoSwitch').onclick = (e) => {
+            autoEnabled = !autoEnabled;
+            e.target.classList.toggle('active');
+        };
+
+        // 自動監控系統
+        function startMonitoring() {
+            setInterval(async () => {
+                if (!autoEnabled || !currentDevice) return;
+                
+                try {
+                    const currentTemp = parseFloat(document.getElementById('tempDisplay').textContent);
+                    
+                    if (currentTemp <= AUTO_ADJUST_THRESHOLD && !isQuickCooling) {
+                        // 自動調整到 25°C
+                        document.getElementById('tempSlider').value = AUTO_ADJUST_TEMP;
+                        updateTempDisplay();
+                        showSuccess('⚠️ 偵測到低溫，已自動調整到 25°C');
+                    }
+                } catch (error) {
+                    console.error('監控出錯:', error);
+                }
+            }, MONITOR_INTERVAL);
+        }
+
+        // 訊息提示
+        function showError(message) {
+            const alert = document.getElementById('errorAlert');
+            alert.textContent = '❌ ' + message;
+            alert.style.display = 'block';
+            setTimeout(() => alert.style.display = 'none', 3000);
+        }
+
+        function showSuccess(message) {
+            const alert = document.getElementById('errorAlert');
+            alert.textContent = '✅ ' + message;
+            alert.classList.add('success');
+            alert.style.display = 'block';
+            setTimeout(() => {
+                alert.style.display = 'none';
+                alert.classList.remove('success');
+            }, 3000);
+        }
+
+        // 啟動
+        init();
+    </script>
+</body>
+</html>
