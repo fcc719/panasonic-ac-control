@@ -52,12 +52,12 @@ class PanasonicSmartApp:
 
     def get_device_info(self, auth: str, gwid: str) -> Dict:
         try:
-            # 【關鍵修正】：改成 Panasonic 要求的陣列 (JArray) 格式
+            # 【關鍵修正 2.0】：移除多餘的 DeviceID，只給最純粹的 CommandType 陣列
             payload = [
-                {"DeviceID": 1, "CommandType": "0x00"}, # 開關狀態
-                {"DeviceID": 1, "CommandType": "0x01"}, # 運轉模式
-                {"DeviceID": 1, "CommandType": "0x03"}, # 室內溫度
-                {"DeviceID": 1, "CommandType": "0x04"}  # 設定溫度
+                {"CommandType": "0x00"}, # 開關狀態
+                {"CommandType": "0x01"}, # 運轉模式
+                {"CommandType": "0x03"}, # 室內溫度
+                {"CommandType": "0x04"}  # 設定溫度
             ]
             
             r = self._session.post(
