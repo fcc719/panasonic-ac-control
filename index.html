@@ -39,6 +39,7 @@
         .power-status { font-weight: bold; padding: 4px 8px; border-radius: 6px; font-size: 0.875rem; }
         .power-on { background: #dbeafe; color: #1e40af; }
         .power-off { background: #f3f4f6; color: #4b5563; }
+        .power-offline { background: #fee2e2; color: #991b1b; }
 
         .temp-display { display: flex; justify-content: space-around; margin-bottom: 24px; text-align: center; }
         .temp-box p { color: var(--text-muted); font-size: 0.875rem; margin-bottom: 4px; }
@@ -52,9 +53,9 @@
         .btn-power:hover:not(:disabled) { background-color: var(--primary-hover); }
         .btn-quick-cool { background-color: var(--success); display: flex; justify-content: center; align-items: center; gap: 8px; }
         .btn-quick-cool:hover:not(:disabled) { background-color: var(--success-hover); }
-        .btn-quick-cool.active { background-color: #f59e0b; } /* 倒數中變橘色 */
+        .btn-quick-cool.active { background-color: #f59e0b; }
 
-        .log { margin-top: 30px; max-width: 800px; margin-left: auto; margin-right: auto; background: #fff; padding: 15px; border-radius: 8px; font-size: 0.85rem; color: #4b5563; height: 150px; overflow-y: auto; }
+        .log { margin-top: 30px; max-width: 800px; margin-left: auto; margin-right: auto; background: #fff; padding: 15px; border-radius: 8px; font-size: 0.85rem; color: #4b5563; height: 150px; overflow-y: auto; line-height: 1.5; }
     </style>
 </head>
 <body>
@@ -65,7 +66,7 @@
     </header>
 
     <div id="devices-container" class="container">
-        <!-- 設備卡片會透過 JS 動態產生在這裡 -->
+        <!-- 設備卡片動態產生 -->
     </div>
 
     <div class="log" id="sys-log">
@@ -73,25 +74,19 @@
     </div>
 
     <script>
-        // 設定 API 網址 (您的 Railway 後端)
+        // 設定 API 網址 (已移除 8080)
         const API_BASE = 'https://panasonic-ac-control-production.up.railway.app';
         let devicesData = [];
         let quickCoolIntervals = {};
 
-        // 初始化
         async function init() {
             logMsg("系統初始化中...");
             await checkHealth();
             await fetchDevices();
-            
-            // 每 30 秒輪詢一次狀態 (實作規則A的基礎)
             setInterval(fetchDevices, 30000);
-            
-            // 恢復速冷計時器 (若使用者重新整理網頁)
             restoreTimers();
         }
 
-        // 寫入日誌
         function logMsg(msg) {
             const logDiv = document.getElementById('sys-log');
             const time = new Date().toLocaleTimeString('zh-TW');
@@ -99,7 +94,6 @@
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
-        // 檢查後端健康狀態
         async function checkHealth() {
             try {
                 const res = await fetch(`${API_BASE}/health`);
@@ -110,32 +104,47 @@
             } catch (error) {
                 document.getElementById('api-status').className = 'status-badge offline';
                 document.getElementById('api-status').innerText = 'API 連線失敗';
-                logMsg("警告：無法連線至後端 API");
+                logMsg("❌ 警告：無法連線至後端 API");
             }
         }
 
-        // 呼叫 API：取得設備狀態
         async function fetchDevices() {
             try {
                 const res = await fetch(`${API_BASE}/api/devices`);
-                devicesData = await res.json();
+                const json = await res.json();
                 
-                // 【規則 A】：防呆自動化邏輯，偵測到 Settemp <= 16，調回 27
+                // 相容後端資料結構 {"devices": [...]} 或 [...]
+                devicesData = json.devices ? json.devices : json;
+
+                if (!Array.isArray(devicesData) || devicesData.length === 0) {
+                    logMsg("⚠️ 找不到任何冷氣設備");
+                    return;
+                }
+
+                // 首次載入時顯示成功訊息
+                if(document.getElementById('devices-container').innerHTML === '') {
+                    logMsg(`✅ 成功取得 ${devicesData.length} 台設備資料`);
+                }
+
                 devicesData.forEach(device => {
-                    if (device.Settemp <= 16) {
-                        logMsg(`⚠️ 偵測到 ${device.DeviceName} 設定溫度為 ${device.Settemp}度 (≤16)。自動調回 27度！`);
-                        controlDevice(device.DeviceID, "4", "27"); // CommandID: 4 為溫度
-                        device.Settemp = 27; // 本地先改，避免UI閃爍
+                    const deviceName = device.DeviceName || device.name;
+                    const deviceId = device.DeviceID || device.id;
+                    const setTemp = device.Settemp;
+
+                    // 規則 A: 溫度小於等於 16 度自動調回 27 度
+                    if (setTemp !== undefined && setTemp <= 16) {
+                        logMsg(`⚠️ 偵測到 [${deviceName}] 設定為 ${setTemp}度 (≤16)。自動調回 27度！`);
+                        controlDevice(deviceId, "4", "27"); 
+                        device.Settemp = 27; 
                     }
                 });
 
                 renderDevices();
             } catch (error) {
-                console.error("Fetch devices error:", error);
+                logMsg(`❌ 讀取設備失敗: ${error.message}`);
             }
         }
 
-        // 呼叫 API：控制冷氣
         async function controlDevice(deviceId, commandId, value) {
             try {
                 logMsg(`發送指令至設備 ${deviceId}: Cmd=${commandId}, Val=${value}`);
@@ -144,43 +153,29 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ CommandID: commandId, Value: value })
                 });
-                // 執行完指令後立即更新UI狀態
                 setTimeout(fetchDevices, 2000); 
             } catch (error) {
                 logMsg(`❌ 控制失敗: ${error.message}`);
             }
         }
 
-        // 【規則 B】：實作速冷按鈕
         function triggerQuickCool(deviceId, deviceName) {
-            // 1. 呼叫 API 設定為 25 度
             logMsg(`🚀 啟動 [${deviceName}] 速冷模式 (25度) 20分鐘`);
             controlDevice(deviceId, "4", "25");
-
-            // 2. 設定倒數時間：20分鐘後 (1200秒)
             const endTime = Date.now() + (20 * 60 * 1000);
             localStorage.setItem(`qc_${deviceId}`, endTime);
-
-            // 3. 開始倒數計時
             startCountdown(deviceId, endTime);
         }
 
-        // 倒數計時器邏輯
         function startCountdown(deviceId, endTime) {
-            // 清除可能存在的舊計時器
-            if (quickCoolIntervals[deviceId]) {
-                clearInterval(quickCoolIntervals[deviceId]);
-            }
+            if (quickCoolIntervals[deviceId]) clearInterval(quickCoolIntervals[deviceId]);
 
             const btn = document.getElementById(`btn-qc-${deviceId}`);
             if(btn) btn.classList.add('active');
 
             quickCoolIntervals[deviceId] = setInterval(() => {
-                const now = Date.now();
-                const diff = endTime - now;
-
+                const diff = endTime - Date.now();
                 if (diff <= 0) {
-                    // 倒數結束
                     clearInterval(quickCoolIntervals[deviceId]);
                     localStorage.removeItem(`qc_${deviceId}`);
                     if(btn) {
@@ -190,7 +185,6 @@
                     logMsg(`⏱️ [設備 ${deviceId}] 速冷結束，自動調回 27度`);
                     controlDevice(deviceId, "4", "27");
                 } else {
-                    // 更新 UI 倒數
                     const mins = Math.floor(diff / 60000);
                     const secs = Math.floor((diff % 60000) / 1000);
                     if(btn) btn.innerText = `⏳ 速冷倒數 ${mins}:${secs.toString().padStart(2, '0')}`;
@@ -198,40 +192,50 @@
             }, 1000);
         }
 
-        // 恢復倒數 (處理重新整理網頁的情況)
         function restoreTimers() {
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 if (key.startsWith('qc_')) {
                     const deviceId = key.split('_')[1];
                     const endTime = parseInt(localStorage.getItem(key));
-                    if (endTime > Date.now()) {
-                        startCountdown(deviceId, endTime);
-                    } else {
-                        localStorage.removeItem(key); // 已過期的清除
-                    }
+                    if (endTime > Date.now()) startCountdown(deviceId, endTime);
+                    else localStorage.removeItem(key);
                 }
             }
         }
 
-        // 開關機切換邏輯
         function togglePower(deviceId, currentStatus) {
-            const newVal = currentStatus === 1 ? "0" : "1"; // 1是開，0是關 (假設)
+            const newVal = (currentStatus === 1 || currentStatus === "1" || currentStatus === true) ? "0" : "1";
             controlDevice(deviceId, "1", newVal);
         }
 
-        // 渲染畫面
         function renderDevices() {
             const container = document.getElementById('devices-container');
             container.innerHTML = '';
 
             devicesData.forEach(device => {
-                const isPowerOn = device.IsEnable === 1 || device.IsEnable === "1" || device.IsEnable === true;
-                const powerText = isPowerOn ? "運轉中" : "已關機";
-                const powerClass = isPowerOn ? "power-on" : "power-off";
+                // 忽略冰箱等非冷氣設備 (device_type === 1 才是冷氣)
+                if (device.device_type && device.device_type !== 1) return;
+
+                const deviceId = device.DeviceID || device.id;
+                const deviceName = device.DeviceName || device.name;
+                const model = device.Model || device.model || '未提供型號';
+                const curTemp = device.CurTemp !== undefined ? device.CurTemp : '--';
+                const setTemp = device.Settemp !== undefined ? device.Settemp : '--';
                 
-                // 檢查是否在速冷倒數中
-                const isQuickCooling = localStorage.getItem(`qc_${device.DeviceID}`) !== null;
+                // 判斷狀態
+                const isOnline = device.is_online !== false;
+                const isPowerOn = device.IsEnable === 1 || device.IsEnable === "1" || device.IsEnable === true;
+                
+                let powerText = isPowerOn ? "運轉中" : "已關機";
+                let powerClass = isPowerOn ? "power-on" : "power-off";
+                
+                if (!isOnline) {
+                    powerText = "設備離線";
+                    powerClass = "power-offline";
+                }
+
+                const isQuickCooling = localStorage.getItem(`qc_${deviceId}`) !== null;
                 const qcBtnClass = isQuickCooling ? "btn-quick-cool active" : "btn-quick-cool";
                 const qcBtnText = isQuickCooling ? "⏳ 速冷倒數中..." : "❄️ 20分鐘速冷 (25°)";
 
@@ -239,26 +243,26 @@
                 card.className = 'card';
                 card.innerHTML = `
                     <div class="card-header">
-                        <h2>${device.DeviceName} <span style="font-size: 0.8rem; color: #6b7280;">(${device.Model})</span></h2>
+                        <h2>${deviceName} <span style="font-size: 0.8rem; color: #6b7280;">(${model})</span></h2>
                         <span class="power-status ${powerClass}">${powerText}</span>
                     </div>
                     
                     <div class="temp-display">
                         <div class="temp-box">
                             <p>室內目前溫度</p>
-                            <strong>${device.CurTemp}°C</strong>
+                            <strong>${curTemp}°C</strong>
                         </div>
                         <div class="temp-box">
                             <p>冷氣設定溫度</p>
-                            <strong>${device.Settemp}°C</strong>
+                            <strong>${setTemp}°C</strong>
                         </div>
                     </div>
 
                     <div class="actions">
-                        <button class="btn-power" onclick="togglePower('${device.DeviceID}', ${device.IsEnable})">
+                        <button class="btn-power" onclick="togglePower('${deviceId}', ${isPowerOn})" ${!isOnline ? 'disabled' : ''}>
                             ${isPowerOn ? '關閉冷氣' : '開啟冷氣'}
                         </button>
-                        <button id="btn-qc-${device.DeviceID}" class="${qcBtnClass}" onclick="triggerQuickCool('${device.DeviceID}', '${device.DeviceName}')">
+                        <button id="btn-qc-${deviceId}" class="${qcBtnClass}" onclick="triggerQuickCool('${deviceId}', '${deviceName}')" ${!isOnline ? 'disabled' : ''}>
                             ${qcBtnText}
                         </button>
                     </div>
@@ -267,7 +271,6 @@
             });
         }
 
-        // 啟動 App
         window.onload = init;
     </script>
 </body>
