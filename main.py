@@ -38,7 +38,7 @@ class PanasonicSmartApp:
         if "CPToken" not in data:
             raise PanasonicLoginFailed(f"登入失敗: {data}")
         self._cp_token = data["CPToken"]
-        _LOGGER.info("登入成功")
+        _LOGGER.info("✅ 登入成功")
         return True
 
     def get_devices(self) -> List[Dict]:
@@ -52,19 +52,23 @@ class PanasonicSmartApp:
 
     def get_device_info(self, auth: str, gwid: str) -> Dict:
         try:
+            # 【關鍵修正】：改成 Panasonic 要求的陣列 (JArray) 格式
+            payload = [
+                {"DeviceID": 1, "CommandType": "0x00"}, # 開關狀態
+                {"DeviceID": 1, "CommandType": "0x01"}, # 運轉模式
+                {"DeviceID": 1, "CommandType": "0x03"}, # 室內溫度
+                {"DeviceID": 1, "CommandType": "0x04"}  # 設定溫度
+            ]
+            
             r = self._session.post(
                 f"{BASE_URL}/DeviceGetInfo",
                 headers={"cptoken": self._cp_token, "auth": auth, "gwid": gwid},
-                json={
-                    "CommandTypes": ["0x00", "0x01", "0x03", "0x04"],
-                    "DeviceID": 1
-                }
+                json=payload
             )
-            _LOGGER.info(f"DeviceGetInfo [{gwid}] HTTP {r.status_code}: {r.text[:200]}")
             r.raise_for_status()
             return r.json()
         except Exception as e:
-            _LOGGER.error(f"get_device_info [{gwid}] 失敗: {e}")
+            _LOGGER.error(f"❌ get_device_info [{gwid}] 失敗: {e}")
             return {}
 
     def set_command(self, auth: str, command_type: str, value: int) -> bool:
@@ -73,10 +77,9 @@ class PanasonicSmartApp:
             headers={"cptoken": self._cp_token, "auth": auth},
             params={"DeviceID": 1, "CommandType": command_type, "Value": value}
         )
-        _LOGGER.info(f"SetCommand {command_type}={value} HTTP {r.status_code}: {r.text[:200]}")
+        _LOGGER.info(f"發送指令 {command_type}={value} HTTP {r.status_code}")
         r.raise_for_status()
         return True
-
 
 app = FastAPI()
 app.add_middleware(
@@ -117,15 +120,6 @@ def _extract_status(info_dict):
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
-
-@app.get("/api/debug")
-def debug_one_device(client: PanasonicSmartApp = Depends(get_api_client)):
-    devices = client.get_devices()
-    if not devices:
-        return {"error": "沒有設備"}
-    first = devices[0]
-    info = client.get_device_info(first.get("Auth", ""), first.get("GWID", ""))
-    return {"device_raw": first, "device_info_response": info}
 
 @app.get("/api/devices")
 def get_devices(client: PanasonicSmartApp = Depends(get_api_client)):
