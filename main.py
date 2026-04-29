@@ -23,8 +23,11 @@ class PanasonicSmartApp:
         self._cp_token: Optional[str] = None
         self._devices: List[Dict] = []
         self._session = requests.Session()
+        # 【修正1】：確保 Header 完整，絕對不能少 Content-Type
         self._session.headers.update({
-            "User-Agent": USER_AGENT
+            "User-Agent": USER_AGENT,
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*"
         })
 
     def login(self) -> bool:
@@ -32,6 +35,8 @@ class PanasonicSmartApp:
             f"{BASE_URL}/userlogin1",
             json={"MemId": self.account, "PW": self.password, "AppToken": APP_TOKEN}
         )
+        if r.status_code != 200:
+            _LOGGER.error(f"Login failed: {r.text}")
         r.raise_for_status()
         data = r.json()
         if "CPToken" not in data:
@@ -45,34 +50,39 @@ class PanasonicSmartApp:
             f"{BASE_URL}/UserGetRegisteredGwList2",
             headers={"cptoken": self._cp_token}
         )
+        if r.status_code != 200:
+            _LOGGER.error(f"Get devices failed: {r.text}")
         r.raise_for_status()
         self._devices = r.json().get("GwList", [])
         return self._devices
 
     def get_device_info(self, auth: str, gwid: str) -> Dict:
         try:
-            # 【關鍵修正】：補上 DeviceID: 1，滿足龜毛的驗證機制
-            payload = [
-                {"DeviceID": 1, "CommandType": "0x00"}, # 開關狀態
-                {"DeviceID": 1, "CommandType": "0x01"}, # 運轉模式
-                {"DeviceID": 1, "CommandType": "0x03"}, # 室內溫度
-                {"DeviceID": 1, "CommandType": "0x04"}  # 設定溫度
-            ]
+            # 【修正2】：100% 官方標準格式，物件包陣列，陣列包物件
+            payload = {
+                "DeviceID": 1,
+                "CommandTypes": [
+                    {"CommandType": "0x00"}, # 開關狀態
+                    {"CommandType": "0x01"}, # 運轉模式
+                    {"CommandType": "0x03"}, # 室內溫度
+                    {"CommandType": "0x04"}  # 設定溫度
+                ]
+            }
             
             r = self._session.post(
                 f"{BASE_URL}/DeviceGetInfo",
                 headers={"cptoken": self._cp_token, "auth": auth, "gwid": gwid},
                 json=payload
             )
+            
+            # 如果還失敗，把伺服器罵人的話完整印出來
+            if r.status_code != 200:
+                _LOGGER.warning(f"⚠️ 取得溫度異常 [{gwid}]: {r.text}")
+                
             r.raise_for_status()
             return r.json()
-        except requests.exceptions.HTTPError as e:
-            # 【X光透視】：把 Panasonic 伺服器罵人的話完整印出來
-            error_msg = e.response.text if e.response else str(e)
-            _LOGGER.error(f"❌ 取得溫度失敗 [{gwid}] HTTP {e.response.status_code}: {error_msg}")
-            return {}
         except Exception as e:
-            _LOGGER.error(f"❌ get_device_info [{gwid}] 失敗: {e}")
+            _LOGGER.error(f"❌ 取得溫度失敗 [{gwid}]: {e}")
             return {}
 
     def set_command(self, auth: str, command_type: str, value: int) -> bool:
@@ -81,9 +91,12 @@ class PanasonicSmartApp:
             headers={"cptoken": self._cp_token, "auth": auth},
             params={"DeviceID": 1, "CommandType": command_type, "Value": value}
         )
-        _LOGGER.info(f"發送指令 {command_type}={value} HTTP {r.status_code}")
+        if r.status_code != 200:
+            _LOGGER.error(f"Set command failed: {r.text}")
         r.raise_for_status()
+        _LOGGER.info(f"✅ 發送指令 {command_type}={value} 成功")
         return True
+
 
 app = FastAPI()
 app.add_middleware(
