@@ -83,26 +83,29 @@ class PanasonicSmartApp:
         self._devices = response.get("GwList", [])
         return self._devices
     
-    def get_device_info(self, device_auth: str, gwid: str) -> Dict:
-        if not self._cp_token: raise PanasonicException("未登入")
-        try:
-            data = {
-                "CommandTypes": [
-                    {"CommandType": "0x00"},  # 開關
-                    {"CommandType": "0x01"},  # 模式
-                    {"CommandType": "0x03"},  # 室內溫度
-                    {"CommandType": "0x04"},  # 設定溫度
-                ],
-                "DeviceID": 1
-            }
-            return self._request(
-                method="POST",
-                endpoint=api_get_device_info(),
-                headers={"cptoken": self._cp_token, "auth": device_auth, "gwid": gwid},
-                data=data
-            )
-        except Exception:
-            return {}
+def get_device_info(self, device_auth: str, gwid: str) -> Dict:
+    if not self._cp_token: raise PanasonicException("未登入")
+    try:
+        data = {
+            "CommandTypes": [
+                {"CommandType": "0x00"},
+                {"CommandType": "0x01"},
+                {"CommandType": "0x03"},
+                {"CommandType": "0x04"},
+            ],
+            "DeviceID": 1
+        }
+        result = self._request(
+            method="POST",
+            endpoint=api_get_device_info(),
+            headers={"cptoken": self._cp_token, "auth": device_auth, "gwid": gwid},
+            data=data
+        )
+        _LOGGER.info(f"get_device_info [{gwid}] 回傳: {result}")
+        return result
+    except Exception as e:
+        _LOGGER.error(f"get_device_info [{gwid}] 失敗: {str(e)}")  # 改成印出來
+        return {}
     
     def set_command(self, device_auth: str, command_type: str, value: int) -> bool:
         if not self._cp_token: raise PanasonicException("未登入")
