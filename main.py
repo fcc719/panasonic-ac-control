@@ -56,12 +56,7 @@ class PanasonicSmartApp:
                 f"{BASE_URL}/DeviceGetInfo",
                 headers={"cptoken": self._cp_token, "auth": auth, "gwid": gwid},
                 json={
-                    "CommandTypes": [
-                        {"CommandType": "0x00"},
-                        {"CommandType": "0x01"},
-                        {"CommandType": "0x03"},
-                        {"CommandType": "0x04"},
-                    ],
+                    "CommandTypes": ["0x00", "0x01", "0x03", "0x04"],
                     "DeviceID": 1
                 }
             )
