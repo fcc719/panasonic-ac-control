@@ -24,8 +24,7 @@ class PanasonicSmartApp:
         self._devices: List[Dict] = []
         self._session = requests.Session()
         self._session.headers.update({
-            "User-Agent": USER_AGENT,
-            "Content-Type": "application/json"
+            "User-Agent": USER_AGENT
         })
 
     def login(self) -> bool:
@@ -52,12 +51,12 @@ class PanasonicSmartApp:
 
     def get_device_info(self, auth: str, gwid: str) -> Dict:
         try:
-            # 【關鍵修正 2.0】：移除多餘的 DeviceID，只給最純粹的 CommandType 陣列
+            # 【關鍵修正】：補上 DeviceID: 1，滿足龜毛的驗證機制
             payload = [
-                {"CommandType": "0x00"}, # 開關狀態
-                {"CommandType": "0x01"}, # 運轉模式
-                {"CommandType": "0x03"}, # 室內溫度
-                {"CommandType": "0x04"}  # 設定溫度
+                {"DeviceID": 1, "CommandType": "0x00"}, # 開關狀態
+                {"DeviceID": 1, "CommandType": "0x01"}, # 運轉模式
+                {"DeviceID": 1, "CommandType": "0x03"}, # 室內溫度
+                {"DeviceID": 1, "CommandType": "0x04"}  # 設定溫度
             ]
             
             r = self._session.post(
@@ -67,6 +66,11 @@ class PanasonicSmartApp:
             )
             r.raise_for_status()
             return r.json()
+        except requests.exceptions.HTTPError as e:
+            # 【X光透視】：把 Panasonic 伺服器罵人的話完整印出來
+            error_msg = e.response.text if e.response else str(e)
+            _LOGGER.error(f"❌ 取得溫度失敗 [{gwid}] HTTP {e.response.status_code}: {error_msg}")
+            return {}
         except Exception as e:
             _LOGGER.error(f"❌ get_device_info [{gwid}] 失敗: {e}")
             return {}
