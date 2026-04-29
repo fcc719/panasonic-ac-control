@@ -220,3 +220,30 @@ def control_device(device_id: str, request: ControlRequest, client: PanasonicSma
             
     client.set_command(device.get("Auth"), cmd_type, val)
     return {"success": True}
+
+@app.get("/api/debug")
+def debug_one_device(client: PanasonicSmartApp = Depends(get_api_client)):
+    """只測試第一台冷氣，看原始回傳"""
+    devices = client.get_devices()
+    if not devices:
+        return {"error": "沒有設備"}
+    
+    first = devices[0]
+    gwid = first.get("GWID", "")
+    auth = first.get("Auth", "")
+    
+    # 印出原始資料
+    raw_device = dict(first)
+    
+    # 試著打 get_device_info
+    try:
+        info = client.get_device_info(auth, gwid)
+        return {
+            "device_raw": raw_device,
+            "device_info_response": info
+        }
+    except Exception as e:
+        return {
+            "device_raw": raw_device,
+            "error": str(e)
+        }
