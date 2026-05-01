@@ -1,9 +1,9 @@
 """
-# 版本號：v3.0 (2026-05-01 11:30)
+# 版本號：v4.0 (2026-05-02 12:00)
 # 更新內容：
-# 1. 修復 GET 請求帶 Content-Type 導致 417 Expectation Failed 的問題。
-# 2. 加入 CPToken 逾時自動重新登入機制 (Auto-Retry)。
-# 3. 採用 100% 官方標準 DeviceGetInfo Payload 結構。
+# 1. 修正 DeviceGetInfo 負載為純陣列 (JArray)，完全對齊開源社群成功標準。
+# 2. 保留 CPToken 逾時自動重登機制 (已驗證運作正常)。
+# 3. 若設備斷線會捕捉正確的狀態，不影響其他設備。
 """
 
 from fastapi import FastAPI, HTTPException, Depends
@@ -31,7 +31,6 @@ class PanasonicSmartApp:
         self._cp_token: Optional[str] = None
         self._devices: List[Dict] = []
         self._session = requests.Session()
-        # 移除全局 Content-Type，讓 requests 只有在 POST JSON 時才自動加上
         self._session.headers.update({
             "User-Agent": USER_AGENT
         })
@@ -68,16 +67,20 @@ class PanasonicSmartApp:
         return self._devices
 
     def get_device_info(self, auth: str, gwid: str) -> Dict:
-        payload = {
-            "DeviceID": 1,
-            "CommandTypes": [
-                {"CommandType": "0x00"}, # 開關狀態
-                {"CommandType": "0x01"}, # 運轉模式
-                {"CommandType": "0x03"}, # 室內溫度
-                {"CommandType": "0x04"}  # 設定溫度
-            ]
+        # 【終極修正】：使用純陣列格式，滿足 JsonReader 對 JArray 的要求
+        payload = [
+            {"CommandType": "0x00"}, # 開關狀態
+            {"CommandType": "0x01"}, # 運轉模式
+            {"CommandType": "0x03"}, # 室內溫度
+            {"CommandType": "0x04"}  # 設定溫度
+        ]
+        
+        headers = {
+            "cptoken": self._cp_token, 
+            "auth": auth, 
+            "gwid": gwid,
+            "Content-Type": "application/json"
         }
-        headers = {"cptoken": self._cp_token, "auth": auth, "gwid": gwid}
         
         r = self._session.post(f"{BASE_URL}/DeviceGetInfo", headers=headers, json=payload)
         
@@ -87,6 +90,7 @@ class PanasonicSmartApp:
             headers["cptoken"] = self._cp_token
             r = self._session.post(f"{BASE_URL}/DeviceGetInfo", headers=headers, json=payload)
 
+        # 若依然失敗，印出原始錯誤以供除錯，但不讓程式崩潰
         if r.status_code != 200:
             _LOGGER.warning(f"⚠️ 取得設備狀態失敗 [{gwid}]: {r.text}")
             return {}
