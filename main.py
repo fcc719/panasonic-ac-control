@@ -1,3 +1,11 @@
+"""
+# 版本號：v3.0 (2026-05-01 11:30)
+# 更新內容：
+# 1. 修復 GET 請求帶 Content-Type 導致 417 Expectation Failed 的問題。
+# 2. 加入 CPToken 逾時自動重新登入機制 (Auto-Retry)。
+# 3. 採用 100% 官方標準 DeviceGetInfo Payload 結構。
+"""
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -23,11 +31,9 @@ class PanasonicSmartApp:
         self._cp_token: Optional[str] = None
         self._devices: List[Dict] = []
         self._session = requests.Session()
-        # 【修正1】：確保 Header 完整，絕對不能少 Content-Type
+        # 移除全局 Content-Type，讓 requests 只有在 POST JSON 時才自動加上
         self._session.headers.update({
-            "User-Agent": USER_AGENT,
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/plain, */*"
+            "User-Agent": USER_AGENT
         })
 
     def login(self) -> bool:
@@ -35,64 +41,74 @@ class PanasonicSmartApp:
             f"{BASE_URL}/userlogin1",
             json={"MemId": self.account, "PW": self.password, "AppToken": APP_TOKEN}
         )
-        if r.status_code != 200:
-            _LOGGER.error(f"Login failed: {r.text}")
         r.raise_for_status()
         data = r.json()
         if "CPToken" not in data:
             raise PanasonicLoginFailed(f"登入失敗: {data}")
         self._cp_token = data["CPToken"]
-        _LOGGER.info("✅ 登入成功")
+        _LOGGER.info("✅ 登入成功，取得新 Token")
         return True
 
     def get_devices(self) -> List[Dict]:
-        r = self._session.get(
-            f"{BASE_URL}/UserGetRegisteredGwList2",
-            headers={"cptoken": self._cp_token}
-        )
+        headers = {"cptoken": self._cp_token}
+        r = self._session.get(f"{BASE_URL}/UserGetRegisteredGwList2", headers=headers)
+        
+        # 處理 Token 逾時自動重登
+        if r.status_code == 417 and "CPToken" in r.text:
+            _LOGGER.warning("⚠️ Token 已逾時，正在自動重新登入...")
+            self.login()
+            headers["cptoken"] = self._cp_token
+            r = self._session.get(f"{BASE_URL}/UserGetRegisteredGwList2", headers=headers)
+
         if r.status_code != 200:
-            _LOGGER.error(f"Get devices failed: {r.text}")
+            _LOGGER.error(f"取得設備清單失敗: {r.text}")
+            
         r.raise_for_status()
         self._devices = r.json().get("GwList", [])
         return self._devices
 
     def get_device_info(self, auth: str, gwid: str) -> Dict:
-        try:
-            # 【修正2】：100% 官方標準格式，物件包陣列，陣列包物件
-            payload = {
-                "DeviceID": 1,
-                "CommandTypes": [
-                    {"CommandType": "0x00"}, # 開關狀態
-                    {"CommandType": "0x01"}, # 運轉模式
-                    {"CommandType": "0x03"}, # 室內溫度
-                    {"CommandType": "0x04"}  # 設定溫度
-                ]
-            }
-            
-            r = self._session.post(
-                f"{BASE_URL}/DeviceGetInfo",
-                headers={"cptoken": self._cp_token, "auth": auth, "gwid": gwid},
-                json=payload
-            )
-            
-            # 如果還失敗，把伺服器罵人的話完整印出來
-            if r.status_code != 200:
-                _LOGGER.warning(f"⚠️ 取得溫度異常 [{gwid}]: {r.text}")
-                
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            _LOGGER.error(f"❌ 取得溫度失敗 [{gwid}]: {e}")
+        payload = {
+            "DeviceID": 1,
+            "CommandTypes": [
+                {"CommandType": "0x00"}, # 開關狀態
+                {"CommandType": "0x01"}, # 運轉模式
+                {"CommandType": "0x03"}, # 室內溫度
+                {"CommandType": "0x04"}  # 設定溫度
+            ]
+        }
+        headers = {"cptoken": self._cp_token, "auth": auth, "gwid": gwid}
+        
+        r = self._session.post(f"{BASE_URL}/DeviceGetInfo", headers=headers, json=payload)
+        
+        # 處理 Token 逾時自動重登
+        if r.status_code == 417 and "CPToken" in r.text:
+            self.login()
+            headers["cptoken"] = self._cp_token
+            r = self._session.post(f"{BASE_URL}/DeviceGetInfo", headers=headers, json=payload)
+
+        if r.status_code != 200:
+            _LOGGER.warning(f"⚠️ 取得設備狀態失敗 [{gwid}]: {r.text}")
             return {}
+            
+        r.raise_for_status()
+        return r.json()
 
     def set_command(self, auth: str, command_type: str, value: int) -> bool:
-        r = self._session.get(
-            f"{BASE_URL}/DeviceSetCommand",
-            headers={"cptoken": self._cp_token, "auth": auth},
-            params={"DeviceID": 1, "CommandType": command_type, "Value": value}
-        )
+        headers = {"cptoken": self._cp_token, "auth": auth}
+        params = {"DeviceID": 1, "CommandType": command_type, "Value": value}
+        
+        r = self._session.get(f"{BASE_URL}/DeviceSetCommand", headers=headers, params=params)
+        
+        # 處理 Token 逾時自動重登
+        if r.status_code == 417 and "CPToken" in r.text:
+            self.login()
+            headers["cptoken"] = self._cp_token
+            r = self._session.get(f"{BASE_URL}/DeviceSetCommand", headers=headers, params=params)
+
         if r.status_code != 200:
-            _LOGGER.error(f"Set command failed: {r.text}")
+            _LOGGER.error(f"發送指令失敗: {r.text}")
+            
         r.raise_for_status()
         _LOGGER.info(f"✅ 發送指令 {command_type}={value} 成功")
         return True
