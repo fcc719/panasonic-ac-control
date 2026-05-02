@@ -217,3 +217,37 @@ def control_device(device_id: str, request: ControlRequest, client: PanasonicSma
             raise HTTPException(status_code=404, detail="找不到設備")
     client.set_command(device.get("Auth"), cmd_type, val)
     return {"success": True}
+
+@app.get("/api/debug")
+def debug_one_device(client: PanasonicSmartApp = Depends(get_api_client)):
+    devices = client.get_devices()
+    if not devices:
+        return {"error": "沒有設備"}
+    first = devices[0]
+    auth = first.get("Auth", "")
+    gwid = first.get("GWID", "")
+    
+    # 直接暴力印出完整 HTTP 回應
+    headers = {
+        "cptoken": client._cp_token,
+        "auth": auth,
+        "gwid": gwid,
+        "Content-Type": "application/json"
+    }
+    payload = json.dumps([{
+        "DeviceID": 1,
+        "CommandTypes": [
+            {"CommandType": "0x00"},
+            {"CommandType": "0x03"},
+            {"CommandType": "0x04"}
+        ]
+    }])
+    
+    r = client._session.post(f"{BASE_URL}/DeviceGetInfo", headers=headers, data=payload)
+    
+    return {
+        "gwid": gwid,
+        "http_status": r.status_code,
+        "response_text": r.text,
+        "response_json": r.json() if r.headers.get("content-type","").startswith("application/json") else None
+    }
