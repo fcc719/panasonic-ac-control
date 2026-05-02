@@ -149,8 +149,8 @@ def _extract_status(info_dict):
     result = {}
     def search(d):
         if isinstance(d, dict):
-            if "CommandType" in d and "Value" in d:
-                result[d["CommandType"]] = d["Value"]
+            if "CommandType" in d and "status" in d:  # Value → status
+                result[d["CommandType"]] = d["status"]
             for v in d.values():
                 search(v)
         elif isinstance(d, list):
@@ -187,13 +187,11 @@ def get_devices(client: PanasonicSmartApp = Depends(get_api_client)):
             if status:
                 dev_data["is_online"] = True
                 if "0x00" in status:
-                    dev_data["IsEnable"] = status["0x00"]
+                    dev_data["IsEnable"] = int(status["0x00"])
                 if "0x03" in status:
-                    cur = status["0x03"]
-                    dev_data["CurTemp"] = cur / 2.0 if cur > 40 else cur
+                    dev_data["CurTemp"] = float(status["0x03"])
                 if "0x04" in status:
-                    dev_data["Settemp"] = status["0x04"] / 2.0
-        result_list.append(dev_data)
+                    dev_data["Settemp"] = float(status["0x04"])        result_list.append(dev_data)
     return {"devices": result_list, "count": len(result_list)}
 
 class ControlRequest(BaseModel):
