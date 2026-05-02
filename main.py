@@ -1,9 +1,9 @@
 """
-# 版本號：v4.0 (2026-05-02 12:00)
+# 版本號：v5.0 (2026-05-02 14:00)
 # 更新內容：
-# 1. 修正 DeviceGetInfo 負載為純陣列 (JArray)，完全對齊開源社群成功標準。
-# 2. 保留 CPToken 逾時自動重登機制 (已驗證運作正常)。
-# 3. 若設備斷線會捕捉正確的狀態，不影響其他設備。
+# 1. 破解 DeviceGetInfo 格式之謎：補回最外層 JArray 陣列包裝。
+# 2. 強制 json.dumps 確保格式不變形。
+# 3. 保留完美的 Token 自動重登機制。
 """
 
 from fastapi import FastAPI, HTTPException, Depends
@@ -13,6 +13,7 @@ from typing import Optional, List, Dict
 import logging
 import os
 import requests
+import json
 
 logging.basicConfig(level=logging.INFO)
 _LOGGER = logging.getLogger(__name__)
@@ -67,13 +68,16 @@ class PanasonicSmartApp:
         return self._devices
 
     def get_device_info(self, auth: str, gwid: str) -> Dict:
-        # 【終極修正】：使用純陣列格式，滿足 JsonReader 對 JArray 的要求
-        payload = [
-            {"CommandType": "0x00"}, # 開關狀態
-            {"CommandType": "0x01"}, # 運轉模式
-            {"CommandType": "0x03"}, # 室內溫度
-            {"CommandType": "0x04"}  # 設定溫度
-        ]
+        # 【終極修正】：最外層加上 [] 陣列，完美符合伺服器 JArray 期待
+        payload = [{
+            "DeviceID": 1,
+            "CommandTypes": [
+                {"CommandType": "0x00"}, # 開關狀態
+                {"CommandType": "0x01"}, # 運轉模式
+                {"CommandType": "0x03"}, # 室內溫度
+                {"CommandType": "0x04"}  # 設定溫度
+            ]
+        }]
         
         headers = {
             "cptoken": self._cp_token, 
@@ -82,17 +86,18 @@ class PanasonicSmartApp:
             "Content-Type": "application/json"
         }
         
-        r = self._session.post(f"{BASE_URL}/DeviceGetInfo", headers=headers, json=payload)
+        # 強制轉為字串發送，避免套件自作聰明
+        data_str = json.dumps(payload)
+        r = self._session.post(f"{BASE_URL}/DeviceGetInfo", headers=headers, data=data_str)
         
         # 處理 Token 逾時自動重登
         if r.status_code == 417 and "CPToken" in r.text:
             self.login()
             headers["cptoken"] = self._cp_token
-            r = self._session.post(f"{BASE_URL}/DeviceGetInfo", headers=headers, json=payload)
+            r = self._session.post(f"{BASE_URL}/DeviceGetInfo", headers=headers, data=data_str)
 
-        # 若依然失敗，印出原始錯誤以供除錯，但不讓程式崩潰
         if r.status_code != 200:
-            _LOGGER.warning(f"⚠️ 取得設備狀態失敗 [{gwid}]: {r.text}")
+            _LOGGER.warning(f"⚠️ 取得設備狀態失敗 [{gwid}]: HTTP {r.status_code} - {r.text}")
             return {}
             
         r.raise_for_status()
